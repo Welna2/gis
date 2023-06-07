@@ -176,7 +176,7 @@ function prepareAndSendRequest(options) {
     request_url = api_url + "/gas_stations?lon=" + options.lon + "&lat=" + options.lat + "&radius=" + options.radius + "&min_price=0";
     if ("name" in options) request_url += "&name=" + options.name;
     if ("fuel" in options) request_url += "&fuel=" + options.fuel;
-    //if ("min_price" in options) request_url += "&min_price=" + options.min_price;
+    if ("min_price" in options) request_url += "&min_price=" + options.min_price;
     if ("max_price" in options) request_url += "&max_price=" + options.max_price;
     if ("min_rate" in options) request_url += "&min_rate=" + options.min_rate;
     if ("max_rate" in options) request_url += "&max_rate=" + options.max_rate;
