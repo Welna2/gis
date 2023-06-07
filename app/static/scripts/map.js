@@ -18,7 +18,10 @@ var pointToSave = 1;
 var showRoute = false;
 
 let currentStep = "start";
-let startCoords, endCoords;
+let startCoords, endCoords, closestStationToStartingCoords;
+let visibleGasStations =[];
+
+let petrolCost = 7;
 
 const geojson = new ol.format.GeoJSON({
     defaultDataProjection: "EPSG:4326",
@@ -84,6 +87,7 @@ function init() {
             {
                 document.getElementById('routeInfo').style.display = 'none';
                 document.getElementById('routeInfoContent').innerHTML = '';
+                closestStationToStartingCoords = 0;
 
                 startLayer.setSource(
                     new ol.source.Vector({
@@ -95,8 +99,8 @@ function init() {
                     endCoords = null;
                     endLayer.getSource().clear();
         
-                  }
-
+                }
+                
                 currentStep = "end";
             } 
 
@@ -109,12 +113,14 @@ function init() {
                 );
                 endCoords = coordinates;
                 currentStep = "start";
+                closestStationToStartingCoords = findClosestSationNearCoords(startCoords);
                 updateRoute(startCoords, endCoords);
             }
 
             if(showRoute)
             {
                 setRouteMarkers();
+                closestStationToStartingCoords = findClosestSationNearCoords(startCoords);
                 updateRoute();
             }
         }
@@ -167,10 +173,10 @@ function prepareAndSendRequest(options) {
             alert("Nieprawidłowe zapytanie: " + resp.message);
         }
     };
-    request_url = api_url + "/gas_stations?lon=" + options.lon + "&lat=" + options.lat + "&radius=" + options.radius
+    request_url = api_url + "/gas_stations?lon=" + options.lon + "&lat=" + options.lat + "&radius=" + options.radius + "&min_price=0";
     if ("name" in options) request_url += "&name=" + options.name;
     if ("fuel" in options) request_url += "&fuel=" + options.fuel;
-    if ("min_price" in options) request_url += "&min_price=" + options.min_price;
+    //if ("min_price" in options) request_url += "&min_price=" + options.min_price;
     if ("max_price" in options) request_url += "&max_price=" + options.max_price;
     if ("min_rate" in options) request_url += "&min_rate=" + options.min_rate;
     if ("max_rate" in options) request_url += "&max_rate=" + options.max_rate;
@@ -297,6 +303,7 @@ function setNewMarkers(request) {
         );
 
         markers.push(point);
+        visibleGasStations.push([element.lon, element.lat, element.min_price]);
     });
 
     if (typeof markerSource === 'undefined') markerSource = new ol.source.Vector();
@@ -311,6 +318,7 @@ function setNewMarkers(request) {
 function clearMarkers() {
     if (typeof markerSource !== 'undefined') {
         markerSource.clear();
+        visibleGasStations = [];        
     }
 }
 
@@ -402,7 +410,7 @@ function deleteComment(gasStationId, commentId) {
 }
 
 function refreshGasStationInfo() {
-    console.log("refreshGasStationInfo");
+    //console.log("refreshGasStationInfo");
     if (document.getElementById("iframe").innerHTML.length > 0) {
         document.getElementById("big-popup").innerHTML = document.getElementById("iframe").innerHTML;
     }
@@ -419,11 +427,11 @@ const authentication = arcgisRest.ApiKeyManager.fromKey(apiKey);
 arcgisRest
 
     .solveRoute({
-    stops: [startCoords, endCoords],
+    stops: [startCoords, closestStationToStartingCoords, endCoords],
     authentication
     })
     .then((response) => {
-        console.log(response.directions[0].summary.totalLength);
+        //console.log(response.directions[0].summary.totalLength);
         chooseCarAndCalculatecostOfFuel(response.directions[0].summary.totalLength);       
 
         routeLayer.setSource(
@@ -551,7 +559,7 @@ function chooseCarAndCalculatecostOfFuel(routeLen) {
     
     let routeLenInMiles = parseFloat(routeLen);
     let routeLenInKm = routeLenInMiles * 1.609344;
-    let routeCombustion = 0;
+    let routeCost = 0;
     let carCombustion;
     
     favDialog.style.display = 'block';
@@ -561,19 +569,49 @@ function chooseCarAndCalculatecostOfFuel(routeLen) {
         
 
         carCombustion = parseFloat(selectEl.value);
-        routeCombustion = routeLenInKm * carCombustion/100;
-        console.log("Route combustion " + routeCombustion);
+        routeCost = routeLenInKm * carCombustion/100 * petrolCost;
+        
 
-        setPopoutWithRouteLenAndRouteCombustion(routeCombustion.toFixed(2), routeLenInKm.toFixed(2));
+        setPopoutWithRouteLenAndRouteCombustion(routeCost.toFixed(2), routeLenInKm.toFixed(2));
     });
 }
 
-function setPopoutWithRouteLenAndRouteCombustion(routeCombustion, routeLen) {
+function setPopoutWithRouteLenAndRouteCombustion(routeCost, routeLen) {
     const infoBox = document.getElementById('routeInfo');
     const infoContent = document.getElementById('routeInfoContent');
 
-    infoContent.innerHTML = 'Długość trasy wynosi:<br>' + routeLen + ' km<br> Zużycie paliwa wyniesie:<br>' + routeCombustion + 'l';
-
+    infoContent.innerHTML = 'Długość trasy:<br>' + routeLen + ' km<br> Koszty paliwa:<br>' + routeCost + 'zł';
+    infoContent.style.fontSize = "1em";
     infoBox.style.display = 'block';
     
 };
+
+function distanceBetweenPoints(latlng1, latlng2){
+    var point1 = new OpenLayers.Geometry.Point(latlng1[0], latlng1[1]).transform("EPSG:3857", "EPSG:4326");
+    var point2 = new OpenLayers.Geometry.Point(latlng2[0], latlng2[1]).transform("EPSG:3857", "EPSG:4326");     
+    
+    return point1.distanceTo(point2);
+}
+
+function findClosestSationNearCoords(coords) {
+    let distanceBeteen = -1;
+    let closestCoords;
+    
+    visibleGasStations.forEach(element => {
+        let secondCoords = element;
+        let newDistanceBetween = distanceBetweenPoints(coords, secondCoords);       
+
+        if (distanceBeteen < 0) {
+            distanceBeteen = newDistanceBetween;
+            closestCoords = secondCoords;      
+            
+        } else if (newDistanceBetween < distanceBeteen) {
+            distanceBeteen = newDistanceBetween;
+            closestCoords = secondCoords;
+            
+        }
+        
+    });
+    
+    return closestCoords;
+}
